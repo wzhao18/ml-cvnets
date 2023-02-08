@@ -6,11 +6,11 @@ common:
   mixed_precision: true
   channels_last: true
 dataset:
-  root_train: "/mnt/imagenet/training"
-  root_val: "/mnt/imagenet/validation"
+  root_train: "/home/zhaowe58/datasets/imagenet/train"
+  root_val: "/home/zhaowe58/datasets/imagenet/val"
   name: "imagenet"
   category: "classification"
-  train_batch_size0: 256 # effective batch size is 2048 (256 * 8 GPUs)
+  train_batch_size0: 80 # effective batch size is 2048 (256 * 8 GPUs)
   val_batch_size0: 100
   eval_batch_size0: 100
   workers: -1

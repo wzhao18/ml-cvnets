@@ -27,6 +27,7 @@ from common import (
     DEFAULT_MAX_EPOCHS,
 )
 
+print(torch.version.cuda)
 
 @errors.record
 def main(opts, **kwargs):
@@ -63,6 +64,7 @@ def main(opts, **kwargs):
             logger.log("Max. epochs for training: {}".format(max_epochs))
     # set-up the model
     model = get_model(opts)
+    print(model)
 
     # memory format
     memory_format = (

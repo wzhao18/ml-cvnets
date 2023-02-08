@@ -7,11 +7,11 @@ common:
   channels_last: true
   accum_freq: 2
 dataset:
-  root_train: "/mnt/imagenet/training"
-  root_val: "/mnt/imagenet/validation"
+  root_train: "/home/zhaowe58/datasets/imagenet/train"
+  root_val: "/home/zhaowe58/datasets/imagenet/val"
   name: "imagenet"
   category: "classification"
-  train_batch_size0: 128 # effective batch size is 2048 (128 * 2 * 8 GPUs)
+  train_batch_size0: 64 # effective batch size is 2048 (128 * 2 * 8 GPUs)
   val_batch_size0: 100
   eval_batch_size0: 100
   workers: -1
