@@ -82,7 +82,7 @@ def device_setup(opts):
             torch.backends.cuda.matmul.allow_tf32 = allow_tf32
 
     setattr(opts, "dev.device", device)
-    setattr(opts, "dev.num_gpus", n_gpus)
+    setattr(opts, "dev.num_gpus", 1)
 
     return opts
 
