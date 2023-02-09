@@ -248,10 +248,6 @@ class Trainer(object):
         # set the gradient to zero or None
         self._zero_grad()
 
-        samples = torch.randn(100, 3, 224, 224, device='cuda')
-        targets = torch.randn(100, device='cuda')
-        batch_id = 0
-
         epoch_start_time = time.time()
         batch_load_start = time.time()
     
@@ -265,24 +261,15 @@ class Trainer(object):
             _samples, _targets = batch["samples"], batch["targets"]
             break
 
-        print(_samples.shape)
-        print(samples.shape)
+        samples = torch.randn(100, 3, 224, 224, device='cuda', dtype=_samples.dtype)
+        targets = torch.randn(100, device='cuda', dtype=_targets.dtype)
+        batch_id = 0
 
         samples.copy_(_samples)
         targets.copy_(_targets)
 
-        print("start capturing")
-
-        print(samples.device)
-        print(samples.shape)
-        print(samples)
-
-        pred_label = self.model(samples)
-
-        print("just before")
-        
-        print(pred_label.keys())
-        print(pred_label)
+        print(_targets.dtype)
+        print(targets.dtype)
 
         g = torch.cuda.CUDAGraph()
         with torch.cuda.graph(g):
@@ -291,15 +278,7 @@ class Trainer(object):
                 amp_precision=self.mixed_precision_dtype,
             ):
                 # prediction
-
-                print("inside capturing")
-
                 pred_label = self.model(samples)
-
-                print("finish capturing")
-                
-                print(pred_label.keys())
-                print(pred_label)
 
         for batch_id, batch in enumerate(self.train_loader):
 
