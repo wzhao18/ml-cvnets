@@ -248,8 +248,8 @@ class Trainer(object):
         # set the gradient to zero or None
         self._zero_grad()
 
-        samples = torch.randn(180, 3, 224, 224, device='cuda')
-        targets = torch.randn(180, device='cuda')
+        samples = torch.randn(100, 3, 224, 224, device='cuda')
+        targets = torch.randn(100, device='cuda')
         batch_id = 0
 
         epoch_start_time = time.time()
@@ -257,11 +257,66 @@ class Trainer(object):
     
         grad_norm = torch.tensor([0.0], dtype=torch.float, device=self.device)
 
+        for batch_id, batch in enumerate(self.train_loader):
+            batch = move_to_device(opts=self.opts, x=batch, device=self.device)
+
+            batch = self.apply_mixup_transforms(data=batch)
+
+            _samples, _targets = batch["samples"], batch["targets"]
+            break
+
+        print(_samples.shape)
+        print(samples.shape)
+
+        samples.copy_(_samples)
+        targets.copy_(_targets)
+
+        print("start capturing")
+
+        print(samples.device)
+        print(samples.shape)
+        print(samples)
+
+        pred_label = self.model(samples)
+
+        print("just before")
+        
+        print(pred_label.keys())
+        print(pred_label)
+
         g = torch.cuda.CUDAGraph()
         with torch.cuda.graph(g):
+            with autocast_fn(
+                enabled=self.mixed_precision_training,
+                amp_precision=self.mixed_precision_dtype,
+            ):
+                # prediction
+
+                print("inside capturing")
+
+                pred_label = self.model(samples)
+
+                print("finish capturing")
+                
+                print(pred_label.keys())
+                print(pred_label)
+
+        for batch_id, batch in enumerate(self.train_loader):
+
             if self.train_iterations > self.max_iterations:
                 self.max_iterations_reached = True
                 return -1, -1
+
+            batch = move_to_device(opts=self.opts, x=batch, device=self.device)
+
+            batch = self.apply_mixup_transforms(data=batch)
+
+            batch_load_toc = time.time() - batch_load_start
+
+            _samples, _targets = batch["samples"], batch["targets"]
+
+            samples.copy_(_samples)
+            targets.copy_(_targets)
 
             batch_size = get_batch_size(samples)
 
@@ -275,14 +330,13 @@ class Trainer(object):
                 self.adjust_norm_mom.adjust_momentum(
                     model=self.model, epoch=epoch, iteration=self.train_iterations
                 )
+            
+            g.replay()
 
             with autocast_fn(
                 enabled=self.mixed_precision_training,
                 amp_precision=self.mixed_precision_dtype,
             ):
-                # prediction
-                pred_label = self.model(samples)
-
                 # compute loss
                 loss_dict_or_tensor: Union[Dict, Tensor] = self.criteria(
                     input_sample=samples,
@@ -381,22 +435,6 @@ class Trainer(object):
                 )
 
             batch_load_start = time.time()
-
-        for batch_id, batch in enumerate(self.train_loader):
-
-            # move to device
-            batch = move_to_device(opts=self.opts, x=batch, device=self.device)
-            # apply mix-up transforms if any
-            batch = self.apply_mixup_transforms(data=batch)
-
-            batch_load_toc = time.time() - batch_load_start
-
-            _samples, _targets = batch["samples"], batch["targets"]
-
-            samples.copy_(_samples)
-            targets.copy_(_targets)
-
-            g.replay
 
         avg_loss = train_stats.avg_statistics(
             metric_name="loss", sub_metric_name="total_loss"

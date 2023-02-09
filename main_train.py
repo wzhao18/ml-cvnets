@@ -29,7 +29,7 @@ from common import (
 
 print(torch.version.cuda)
 
-@errors.record
+# @errors.record
 def main(opts, **kwargs):
     num_gpus = getattr(opts, "dev.num_gpus", 0)  # defaults are for CPU
     dev_id = getattr(opts, "dev.device_id", torch.device("cpu"))
