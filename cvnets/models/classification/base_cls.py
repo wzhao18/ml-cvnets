@@ -220,7 +220,6 @@ class BaseEncoder(nn.Module):
         return self.extract_end_points_all(x, use_l5=False)
 
     def _extract_features(self, x: Tensor, *args, **kwargs) -> Tensor:
-        print("_extract_features!!!!!")
         x = self._forward_layer(self.conv_1, x)
         x = self._forward_layer(self.layer_1, x)
         x = self._forward_layer(self.layer_2, x)

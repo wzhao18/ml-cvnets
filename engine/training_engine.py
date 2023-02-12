@@ -286,8 +286,8 @@ class Trainer(object):
         # ==============================================================================
 
         # ==================== Trying out the following example ========================
-        x1 = torch.randn(20, 3, 224, 224, device='cuda')
-        conv_1 = torch.cuda.make_graphed_callables(self.model.conv_1.cuda(), (x1,))
+        x1 = torch.randn(20, 3, 224, 224, device='cuda', requires_grad=True)
+        _extract_features = torch.cuda.make_graphed_callables(self.model._extract_features, (x1,))
         # ==============================================================================
 
         # set the gradient to zero or None
@@ -326,13 +326,7 @@ class Trainer(object):
                 )
             
             x_aug = self.model.neural_augmentor(samples)
-            x = self.model.conv_1(x_aug)
-            x = self.model.layer_1(x)
-            x = self.model.layer_2(x)
-            x = self.model.layer_3(x)
-            x = self.model.layer_4(x)
-            x = self.model.layer_5(x)
-            features = self.model.conv_1x1_exp(x)
+            features = self.model._extract_features(x_aug)
             prediction = self.model.classifier(features)
             pred_label = {"augmented_tensor": x_aug, "logits": prediction}
 
