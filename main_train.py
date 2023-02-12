@@ -215,6 +215,9 @@ def main_worker(**kwargs):
     norm_name = getattr(opts, "model.normalization.name", "batch_norm")
     ddp_spawn = not getattr(opts, "ddp.no_spawn", False)
     if use_distributed and ddp_spawn and torch.cuda.is_available():
+
+        print("use_distributed")
+
         # get device id
         dev_id = getattr(opts, "ddp.device_id", None)
         setattr(opts, "dev.device_id", dev_id)
@@ -239,6 +242,7 @@ def main_worker(**kwargs):
             nprocs=num_gpus,
         )
     else:
+        print("not use_distributed")
         if dataset_workers == -1:
             setattr(opts, "dataset.workers", n_cpus)
 

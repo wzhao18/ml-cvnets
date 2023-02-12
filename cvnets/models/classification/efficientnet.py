@@ -3,6 +3,7 @@
 # Copyright (C) 2022 Apple Inc. All Rights Reserved.
 #
 
+import torch
 from torch import nn
 import argparse
 from typing import Any, Optional, Tuple

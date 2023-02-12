@@ -32,6 +32,7 @@ class BaseEncoder(nn.Module):
         self.layer_4 = None
         self.layer_5 = None
         self.conv_1x1_exp = None
+        self.linear = None
         self.classifier = None
         self.round_nearest = 8
 
@@ -219,6 +220,7 @@ class BaseEncoder(nn.Module):
         return self.extract_end_points_all(x, use_l5=False)
 
     def _extract_features(self, x: Tensor, *args, **kwargs) -> Tensor:
+        print("_extract_features!!!!!")
         x = self._forward_layer(self.conv_1, x)
         x = self._forward_layer(self.layer_1, x)
         x = self._forward_layer(self.layer_2, x)
@@ -239,6 +241,7 @@ class BaseEncoder(nn.Module):
 
     def forward(self, x: Any, *args, **kwargs) -> Any:
         if self.neural_augmentor is not None:
+            print("self.neural_augmentor is not None")
             if self.training:
                 x_aug = self.neural_augmentor(x)
                 prediction = self._forward_classifier(x_aug)  # .detach()
@@ -250,6 +253,7 @@ class BaseEncoder(nn.Module):
                 }
             return out_dict
         else:
+            print("self.neural_augmentor is None")
             x = self._forward_classifier(x, *args, **kwargs)
             return x
 

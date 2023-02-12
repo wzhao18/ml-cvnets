@@ -51,10 +51,12 @@ def print_summary(
         try:
             inp_tensor = create_rand_tensor(opts, device=dev)
 
-            if hasattr(model, "module"):
-                model.module.profile_model(inp_tensor)
-            else:
-                model.profile_model(inp_tensor)
+            print("Running print_summary")
+
+            # if hasattr(model, "module"):
+            #     model.module.profile_model(inp_tensor)
+            # else:
+            #     model.profile_model(inp_tensor)
             del inp_tensor
         except Exception as e:
             pass

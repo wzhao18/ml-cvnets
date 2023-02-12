@@ -245,9 +245,6 @@ class Trainer(object):
         accum_freq = self.accum_freq if epoch >= self.accum_after_epoch else 1
         max_norm = getattr(self.opts, "common.grad_clip", None)
 
-        # set the gradient to zero or None
-        self._zero_grad()
-
         epoch_start_time = time.time()
         batch_load_start = time.time()
     
@@ -261,24 +258,42 @@ class Trainer(object):
             _samples, _targets = batch["samples"], batch["targets"]
             break
 
-        samples = torch.randn(100, 3, 224, 224, device='cuda', dtype=_samples.dtype)
-        targets = torch.randn(100, device='cuda', dtype=_targets.dtype)
+        print(_targets.dtype)
+
+        samples = torch.randn(20, 3, 224, 224, device='cuda', dtype=_samples.dtype)
+        targets = torch.randint(0, 2, (20,), device='cuda', dtype=_targets.dtype)
         batch_id = 0
 
-        samples.copy_(_samples)
-        targets.copy_(_targets)
+        # samples.copy_(_samples)
+        # targets.copy_(_targets)
 
-        print(_targets.dtype)
-        print(targets.dtype)
+        # x_aug = self.model.neural_augmentor(samples)
+        # x1 = self.model.conv_1(x_aug)
+        # x2 = self.model.layer_1(x1)
+        # x3 = self.model.layer_2(x2)
+        # x4 = self.model.layer_3(x3)
+        # x5 = self.model.layer_4(x4)
+        # x6 = self.model.layer_5(x5)
+        # features = self.model.conv_1x1_exp(x6)
+        # pred = self.model.classifier(features)
 
-        g = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(g):
-            with autocast_fn(
-                enabled=self.mixed_precision_training,
-                amp_precision=self.mixed_precision_dtype,
-            ):
-                # prediction
-                pred_label = self.model(samples)
+        # ======================== The following example works ========================
+        N, D_in, D_out = 640, 4096, 2048
+        module1 = torch.nn.Linear(D_in, D_out)
+
+        x = torch.randn(640, 4096, device='cuda')
+        module1 = torch.cuda.make_graphed_callables(module1.cuda(), (x,))
+        # ==============================================================================
+
+        # ==================== Trying out the following example ========================
+        x1 = torch.randn(20, 3, 224, 224, device='cuda')
+        conv_1 = torch.cuda.make_graphed_callables(self.model.conv_1.cuda(), (x1,))
+        # ==============================================================================
+
+        # set the gradient to zero or None
+        self._zero_grad()
+
+        print("Capture complete 2222!!!")
 
         for batch_id, batch in enumerate(self.train_loader):
 
@@ -310,7 +325,16 @@ class Trainer(object):
                     model=self.model, epoch=epoch, iteration=self.train_iterations
                 )
             
-            g.replay()
+            x_aug = self.model.neural_augmentor(samples)
+            x = self.model.conv_1(x_aug)
+            x = self.model.layer_1(x)
+            x = self.model.layer_2(x)
+            x = self.model.layer_3(x)
+            x = self.model.layer_4(x)
+            x = self.model.layer_5(x)
+            features = self.model.conv_1x1_exp(x)
+            prediction = self.model.classifier(features)
+            pred_label = {"augmented_tensor": x_aug, "logits": prediction}
 
             with autocast_fn(
                 enabled=self.mixed_precision_training,
