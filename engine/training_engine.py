@@ -256,8 +256,15 @@ class Trainer(object):
         neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
         _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
 
+        # p = torch.randn(50, 1000, device='cuda')
+        # t = torch.randint(0, 2, (50,), device='cuda', dtype=torch.int64)
+        # criteria = torch.cuda.make_graphed_callables(self.criteria, (x0, p, t))
+
+
         del x0
         del x1
+        # del p
+        # del t
         print("Capture complete!!!")
         # ==============================================================================
 
@@ -288,28 +295,41 @@ class Trainer(object):
                 )
 
             # ========================= Using pytorch module =========================
-            x_aug = self.model.neural_augmentor(samples)
-            prediction = self.model._forward_classifier(x_aug)
+            # x_aug = self.model.neural_augmentor(samples)
+            # prediction = self.model._forward_classifier(x_aug)
             # ========================================================================
 
             # =========================== Using CUDA graph ===========================
-            # x_aug = neural_augmentor(samples)
-            # prediction = _forward_classifier(x_aug)
+            x_aug = neural_augmentor(samples)
+            prediction = _forward_classifier(x_aug)
             # ========================================================================
-            pred_label = {"augmented_tensor": x_aug, "logits": prediction}
+
+            pred_label = {
+                "augmented_tensor": x_aug,
+                "logits": prediction,
+            }
 
             with autocast_fn(
                 enabled=self.mixed_precision_training,
                 amp_precision=self.mixed_precision_dtype,
             ):
-                # compute loss
-                loss_dict_or_tensor: Union[Dict, Tensor] = self.criteria(
-                    input_sample=samples,
-                    prediction=pred_label,
-                    target=targets,
-                    epoch=epoch,
-                    iterations=self.train_iterations,
+
+                loss_na = self.criteria.criteria.forward_neural_aug(
+                    input_tensor=samples,
+                    augmented_tensor=x_aug
                 )
+
+                ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(
+                    x_aug,
+                    prediction,
+                    targets
+                )
+
+                loss_dict_or_tensor: Union[Dict, Tensor] = {
+                    "total_loss": loss_na + ce_loss,
+                    "na_loss": loss_na,
+                    "cls_loss": ce_loss,
+                }
 
                 if isinstance(loss_dict_or_tensor, Dict):
                     if "total_loss" not in loss_dict_or_tensor.keys():
