@@ -57,7 +57,7 @@ class BaseNeuralAug(BaseCriteria):
                 # compute target MSE using below equation
                 # # PSNR = 20 log10(255) - 10 log10(MSE)
                 target_mse = 10.0 ** ((20.0 * math.log10(255.0) - target_value) / 10.0)
-                self.target_value = torch.ones(size=(1,), dtype=torch.float).fill_(
+                self.target_value = torch.ones(size=(1,), dtype=torch.float, device='cuda').fill_(
                     target_mse
                 )
                 self.target_str = f"{target_value}"
@@ -103,7 +103,7 @@ class BaseNeuralAug(BaseCriteria):
                 if curriculum_method in CURRICULUMN_METHOD.keys():
                     self.target_value = CURRICULUMN_METHOD[curriculum_method](
                         start=start_target_mse, end=end_target_mse, period=max_steps
-                    )
+                    ).to(device=torch.device('cuda:0'))
                 else:
                     raise NotImplementedError
 
@@ -153,9 +153,7 @@ class BaseNeuralAug(BaseCriteria):
 
         loss_na = F.smooth_l1_loss(
             input=pred_mse,
-            target=target_mse.expand_as(pred_mse).to(
-                device=pred_mse.device, dtype=pred_mse.dtype
-            ),
+            target=target_mse.expand_as(pred_mse),
             reduction="mean",
         )
 

@@ -256,10 +256,11 @@ class Trainer(object):
         neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
         _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
 
+        forward_neural_aug = torch.cuda.make_graphed_callables(self.criteria.criteria.forward_neural_aug, (x0, x1))
+
         # p = torch.randn(50, 1000, device='cuda')
         # t = torch.randint(0, 2, (50,), device='cuda', dtype=torch.int64)
         # criteria = torch.cuda.make_graphed_callables(self.criteria, (x0, p, t))
-
 
         del x0
         del x1
@@ -314,10 +315,7 @@ class Trainer(object):
                 amp_precision=self.mixed_precision_dtype,
             ):
 
-                loss_na = self.criteria.criteria.forward_neural_aug(
-                    input_tensor=samples,
-                    augmented_tensor=x_aug
-                )
+                loss_na = forward_neural_aug(samples, x_aug)
 
                 ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(
                     x_aug,
