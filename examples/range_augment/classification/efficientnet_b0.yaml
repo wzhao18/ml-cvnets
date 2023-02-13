@@ -10,7 +10,7 @@ dataset:
   root_val: "/home/zhaowe58/datasets/imagenet/val"
   name: "imagenet"
   category: "classification"
-  train_batch_size0: 20 # effective batch size is 2048 (256 * 8 GPUs)
+  train_batch_size0: 50 # effective batch size is 2048 (256 * 8 GPUs)
   val_batch_size0: 100
   eval_batch_size0: 100
   workers: 1

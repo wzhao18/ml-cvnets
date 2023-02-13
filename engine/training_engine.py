@@ -250,50 +250,19 @@ class Trainer(object):
     
         grad_norm = torch.tensor([0.0], dtype=torch.float, device=self.device)
 
-        for batch_id, batch in enumerate(self.train_loader):
-            batch = move_to_device(opts=self.opts, x=batch, device=self.device)
+        # ================= Capturing forward pass with CUDA Graph =====================
+        x0 = torch.randn(50, 3, 224, 224, device='cuda')
+        x1 = torch.randn(50, 3, 224, 224, device='cuda', requires_grad=True)
+        neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
+        _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
 
-            batch = self.apply_mixup_transforms(data=batch)
-
-            _samples, _targets = batch["samples"], batch["targets"]
-            break
-
-        print(_targets.dtype)
-
-        samples = torch.randn(20, 3, 224, 224, device='cuda', dtype=_samples.dtype)
-        targets = torch.randint(0, 2, (20,), device='cuda', dtype=_targets.dtype)
-        batch_id = 0
-
-        # samples.copy_(_samples)
-        # targets.copy_(_targets)
-
-        # x_aug = self.model.neural_augmentor(samples)
-        # x1 = self.model.conv_1(x_aug)
-        # x2 = self.model.layer_1(x1)
-        # x3 = self.model.layer_2(x2)
-        # x4 = self.model.layer_3(x3)
-        # x5 = self.model.layer_4(x4)
-        # x6 = self.model.layer_5(x5)
-        # features = self.model.conv_1x1_exp(x6)
-        # pred = self.model.classifier(features)
-
-        # ======================== The following example works ========================
-        N, D_in, D_out = 640, 4096, 2048
-        module1 = torch.nn.Linear(D_in, D_out)
-
-        x = torch.randn(640, 4096, device='cuda')
-        module1 = torch.cuda.make_graphed_callables(module1.cuda(), (x,))
-        # ==============================================================================
-
-        # ==================== Trying out the following example ========================
-        x1 = torch.randn(20, 3, 224, 224, device='cuda', requires_grad=True)
-        _extract_features = torch.cuda.make_graphed_callables(self.model._extract_features, (x1,))
+        del x0
+        del x1
+        print("Capture complete!!!")
         # ==============================================================================
 
         # set the gradient to zero or None
         self._zero_grad()
-
-        print("Capture complete 2222!!!")
 
         for batch_id, batch in enumerate(self.train_loader):
 
@@ -302,16 +271,9 @@ class Trainer(object):
                 return -1, -1
 
             batch = move_to_device(opts=self.opts, x=batch, device=self.device)
-
             batch = self.apply_mixup_transforms(data=batch)
-
             batch_load_toc = time.time() - batch_load_start
-
-            _samples, _targets = batch["samples"], batch["targets"]
-
-            samples.copy_(_samples)
-            targets.copy_(_targets)
-
+            samples, targets = batch["samples"], batch["targets"]
             batch_size = get_batch_size(samples)
 
             # update the learning rate
@@ -324,10 +286,16 @@ class Trainer(object):
                 self.adjust_norm_mom.adjust_momentum(
                     model=self.model, epoch=epoch, iteration=self.train_iterations
                 )
-            
+
+            # ========================= Using pytorch module =========================
             x_aug = self.model.neural_augmentor(samples)
-            features = self.model._extract_features(x_aug)
-            prediction = self.model.classifier(features)
+            prediction = self.model._forward_classifier(x_aug)
+            # ========================================================================
+
+            # =========================== Using CUDA graph ===========================
+            # x_aug = neural_augmentor(samples)
+            # prediction = _forward_classifier(x_aug)
+            # ========================================================================
             pred_label = {"augmented_tensor": x_aug, "logits": prediction}
 
             with autocast_fn(
