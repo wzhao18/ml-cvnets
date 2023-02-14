@@ -26,10 +26,10 @@ class CrossEntropyWithNA(ClsCrossEntropy, BaseNeuralAug):
     def add_arguments(cls, parser: argparse.ArgumentParser):
         return parser
 
-    def ClsCrossEntropy_forward(self, augmented_tensor, logits, targets):
+    def ClsCrossEntropy_forward(self, logits, targets):
         ce_loss = ClsCrossEntropy.forward(
             self,
-            input_sample=augmented_tensor,
+            input_sample=None,
             prediction=logits,
             target=targets
         )

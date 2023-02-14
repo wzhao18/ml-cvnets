@@ -255,17 +255,10 @@ class Trainer(object):
         x1 = torch.randn(50, 3, 224, 224, device='cuda', requires_grad=True)
         neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
         _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
-
         forward_neural_aug = torch.cuda.make_graphed_callables(self.criteria.criteria.forward_neural_aug, (x0, x1))
-
-        # p = torch.randn(50, 1000, device='cuda')
-        # t = torch.randint(0, 2, (50,), device='cuda', dtype=torch.int64)
-        # criteria = torch.cuda.make_graphed_callables(self.criteria, (x0, p, t))
 
         del x0
         del x1
-        # del p
-        # del t
         print("Capture complete!!!")
         # ==============================================================================
 
@@ -296,13 +289,13 @@ class Trainer(object):
                 )
 
             # ========================= Using pytorch module =========================
-            # x_aug = self.model.neural_augmentor(samples)
-            # prediction = self.model._forward_classifier(x_aug)
+            x_aug = self.model.neural_augmentor(samples)
+            prediction = self.model._forward_classifier(x_aug)
             # ========================================================================
 
             # =========================== Using CUDA graph ===========================
-            x_aug = neural_augmentor(samples)
-            prediction = _forward_classifier(x_aug)
+            # x_aug = neural_augmentor(samples)
+            # prediction = _forward_classifier(x_aug)
             # ========================================================================
 
             pred_label = {
@@ -315,13 +308,15 @@ class Trainer(object):
                 amp_precision=self.mixed_precision_dtype,
             ):
 
-                loss_na = forward_neural_aug(samples, x_aug)
+                # ========================= Using pytorch module =========================
+                loss_na = self.criteria.criteria.forward_neural_aug(samples, x_aug)
+                # ========================================================================
 
-                ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(
-                    x_aug,
-                    prediction,
-                    targets
-                )
+                # =========================== Using CUDA graph ===========================
+                # loss_na = forward_neural_aug(samples, x_aug)
+                # ========================================================================
+
+                ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(prediction, targets)
 
                 loss_dict_or_tensor: Union[Dict, Tensor] = {
                     "total_loss": loss_na + ce_loss,
