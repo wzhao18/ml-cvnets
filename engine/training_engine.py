@@ -258,227 +258,213 @@ class Trainer(object):
         backward_time = 0
         iter_time = 0
 
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU]
-        ) as profiler:
+        # # ================= Capturing forward pass with CUDA Graph =====================
+        x0 = torch.randn(50, 3, 224, 224, device='cuda')
+        x1 = torch.randn(50, 3, 224, 224, device='cuda', requires_grad=True)
+        neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
+        _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
+        forward_neural_aug = torch.cuda.make_graphed_callables(self.criteria.criteria.forward_neural_aug, (x0, x1))
 
-            # # ================= Capturing forward pass with CUDA Graph =====================
-            x0 = torch.randn(50, 3, 224, 224, device='cuda')
-            x1 = torch.randn(50, 3, 224, 224, device='cuda', requires_grad=True)
-            neural_augmentor = torch.cuda.make_graphed_callables(self.model.neural_augmentor, (x0,))
-            _forward_classifier = torch.cuda.make_graphed_callables(self.model._forward_classifier, (x1,))
-            forward_neural_aug = torch.cuda.make_graphed_callables(self.criteria.criteria.forward_neural_aug, (x0, x1))
+        del x0
+        del x1
+        print("Capture complete!!!")
+        # # ==============================================================================
 
-            del x0
-            del x1
-            print("Capture complete!!!")
-            # # ==============================================================================
+        for batch_id, batch in enumerate(self.train_loader):
+            break
+        
+        batch_id = -1
+        for i in range(1000):
+            batch_id += 1
 
-        with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(skip_first=10, wait=5, warmup=1, active=3, repeat=2),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler("./log"),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True
-        ) as profiler:
-            # for batch_id, batch in enumerate(self.train_loader):
-            batch_id = -1
-            batch = self.train_loader[0]
-            for i in range(1000):
+            # torch.cuda.synchronize()
+            # iter_start = time.time()
 
-                batch_id += 1
+            if self.train_iterations > self.max_iterations:
+                self.max_iterations_reached = True
+                return -1, -1
 
-                # torch.cuda.synchronize()
-                # iter_start = time.time()
+            _batch = move_to_device(opts=self.opts, x=batch, device=self.device)
+            _batch = self.apply_mixup_transforms(data=_batch)
+            batch_load_toc = time.time() - batch_load_start
+            samples, targets = _batch["samples"], _batch["targets"]
+            batch_size = get_batch_size(samples)
 
-                if self.train_iterations > self.max_iterations:
-                    self.max_iterations_reached = True
-                    return -1, -1
+            # update the learning rate
+            self.optimizer = self.scheduler.update_lr(
+                optimizer=self.optimizer, epoch=epoch, curr_iter=self.train_iterations
+            )
 
-                batch = move_to_device(opts=self.opts, x=batch, device=self.device)
-                batch = self.apply_mixup_transforms(data=batch)
-                batch_load_toc = time.time() - batch_load_start
-                samples, targets = batch["samples"], batch["targets"]
-                batch_size = get_batch_size(samples)
-
-                # update the learning rate
-                self.optimizer = self.scheduler.update_lr(
-                    optimizer=self.optimizer, epoch=epoch, curr_iter=self.train_iterations
+            # adjust bn momentum
+            if self.adjust_norm_mom is not None:
+                self.adjust_norm_mom.adjust_momentum(
+                    model=self.model, epoch=epoch, iteration=self.train_iterations
                 )
 
-                # adjust bn momentum
-                if self.adjust_norm_mom is not None:
-                    self.adjust_norm_mom.adjust_momentum(
-                        model=self.model, epoch=epoch, iteration=self.train_iterations
-                    )
+            # torch.cuda.synchronize()
+            # forward_start = time.time()
+
+            # ========================= Using pytorch module =========================
+            # x_aug = self.model.neural_augmentor(samples)
+            # prediction = self.model._forward_classifier(x_aug)
+            # ========================================================================
+
+            # =========================== Using CUDA graph ===========================
+            x_aug = neural_augmentor(samples)
+            prediction = _forward_classifier(x_aug)
+            # ========================================================================
+
+            # torch.cuda.synchronize()
+            # forward_end = time.time()
+
+            # forward_time = forward_time + (forward_end - forward_start)
+            # if batch_id % 5000 == 0:
+            #     print(f"Avg forward time: {forward_time / 5000}")
+            #     forward_time = 0
+
+            pred_label = {
+                "augmented_tensor": x_aug,
+                "logits": prediction,
+            }
+
+            with autocast_fn(
+                enabled=self.mixed_precision_training,
+                amp_precision=self.mixed_precision_dtype,
+            ):
 
                 # torch.cuda.synchronize()
-                # forward_start = time.time()
+                # loss_start = time.time()
 
                 # ========================= Using pytorch module =========================
-                # x_aug = self.model.neural_augmentor(samples)
-                # prediction = self.model._forward_classifier(x_aug)
+                # loss_na = self.criteria.criteria.forward_neural_aug(samples, x_aug)
                 # ========================================================================
 
                 # =========================== Using CUDA graph ===========================
-                x_aug = neural_augmentor(samples)
-                prediction = _forward_classifier(x_aug)
+                loss_na = forward_neural_aug(samples, x_aug)
                 # ========================================================================
 
                 # torch.cuda.synchronize()
-                # forward_end = time.time()
+                # loss_end = time.time()
 
-                # forward_time = forward_time + (forward_end - forward_start)
+                # loss_time = loss_time + (loss_end - loss_start)
                 # if batch_id % 5000 == 0:
-                #     print(f"Avg forward time: {forward_time / 5000}")
-                #     forward_time = 0
+                #     print(f"Avg loss time: {loss_time / 5000}")
+                #     loss_time = 0
 
-                pred_label = {
-                    "augmented_tensor": x_aug,
-                    "logits": prediction,
+                ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(prediction, targets)
+
+                loss_dict_or_tensor: Union[Dict, Tensor] = {
+                    "total_loss": loss_na + ce_loss,
+                    "na_loss": loss_na,
+                    "cls_loss": ce_loss,
                 }
 
-                with autocast_fn(
-                    enabled=self.mixed_precision_training,
-                    amp_precision=self.mixed_precision_dtype,
-                ):
-
-                    # torch.cuda.synchronize()
-                    # loss_start = time.time()
-
-                    # ========================= Using pytorch module =========================
-                    # loss_na = self.criteria.criteria.forward_neural_aug(samples, x_aug)
-                    # ========================================================================
-
-                    # =========================== Using CUDA graph ===========================
-                    loss_na = forward_neural_aug(samples, x_aug)
-                    # ========================================================================
-
-                    # torch.cuda.synchronize()
-                    # loss_end = time.time()
-
-                    # loss_time = loss_time + (loss_end - loss_start)
-                    # if batch_id % 5000 == 0:
-                    #     print(f"Avg loss time: {loss_time / 5000}")
-                    #     loss_time = 0
-
-                    ce_loss = self.criteria.criteria.ClsCrossEntropy_forward(prediction, targets)
-
-                    loss_dict_or_tensor: Union[Dict, Tensor] = {
-                        "total_loss": loss_na + ce_loss,
-                        "na_loss": loss_na,
-                        "cls_loss": ce_loss,
-                    }
-
-                    if isinstance(loss_dict_or_tensor, Dict):
-                        if "total_loss" not in loss_dict_or_tensor.keys():
-                            logger.error(
-                                "total_loss key is required for loss functions that return outputs as dictionary."
-                            )
-                        loss = loss_dict_or_tensor["total_loss"]
-                    elif isinstance(loss_dict_or_tensor, Tensor):
-                        loss = loss_dict_or_tensor
-                    else:
-                        logger.error("Loss value should be an instance of Tensor or Dict")
-
-                    if isinstance(loss, torch.Tensor) and torch.isnan(loss):
-                        logger.error("Nan encountered in the loss.")
-
-                # torch.cuda.synchronize()
-                # backward_start = time.time()
-
-                # perform the backward pass with gradient accumulation [Optional]
-                self.gradient_scalar.scale(loss).backward()
-
-                # torch.cuda.synchronize()
-                # backward_end = time.time()
-                # backward_time = backward_time + (backward_end - backward_start)
-                # if batch_id % 5000 == 0:
-                #     print(f"Avg backward time: {backward_time / 5000}")
-                #     backward_time = 0
-
-                if (batch_id + 1) % accum_freq == 0:
-                    if max_norm is not None:
-                        # For gradient clipping, unscale the gradients and then clip them
-                        self.gradient_scalar.unscale_(self.optimizer)
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), max_norm=max_norm
+                if isinstance(loss_dict_or_tensor, Dict):
+                    if "total_loss" not in loss_dict_or_tensor.keys():
+                        logger.error(
+                            "total_loss key is required for loss functions that return outputs as dictionary."
                         )
+                    loss = loss_dict_or_tensor["total_loss"]
+                elif isinstance(loss_dict_or_tensor, Tensor):
+                    loss = loss_dict_or_tensor
+                else:
+                    logger.error("Loss value should be an instance of Tensor or Dict")
 
-                    if "grad_norm" in self.train_metric_names:
-                        # compute grad_norm for logging purposes.
-                        # We can't use the output of clip_grad_norm_ because it returns the total norm before clipping
-                        grad_norm = self.compute_grad_norm()
+                if isinstance(loss, torch.Tensor) and torch.isnan(loss):
+                    logger.error("Nan encountered in the loss.")
 
-                    # optimizer step
-                    self.gradient_scalar.step(optimizer=self.optimizer)
-                    # update the scale for next batch
-                    self.gradient_scalar.update()
-                    # set the gradient to zero or None
-                    self._zero_grad()
+            # torch.cuda.synchronize()
+            # backward_start = time.time()
 
-                    self.train_iterations += 1
+            # perform the backward pass with gradient accumulation [Optional]
+            self.gradient_scalar.scale(loss).backward()
 
-                    if self.model_ema is not None:
-                        self.model_ema.update_parameters(self.model)
+            # torch.cuda.synchronize()
+            # backward_end = time.time()
+            # backward_time = backward_time + (backward_end - backward_start)
+            # if batch_id % 5000 == 0:
+            #     print(f"Avg backward time: {backward_time / 5000}")
+            #     backward_time = 0
 
-                metrics = metric_monitor(
-                    self.opts,
-                    pred_label=pred_label,
-                    target_label=targets,
-                    loss=loss_dict_or_tensor,
-                    grad_norm=grad_norm,
-                    use_distributed=self.use_distributed,
-                    metric_names=self.train_metric_names,
+            if (batch_id + 1) % accum_freq == 0:
+                if max_norm is not None:
+                    # For gradient clipping, unscale the gradients and then clip them
+                    self.gradient_scalar.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), max_norm=max_norm
+                    )
+
+                if "grad_norm" in self.train_metric_names:
+                    # compute grad_norm for logging purposes.
+                    # We can't use the output of clip_grad_norm_ because it returns the total norm before clipping
+                    grad_norm = self.compute_grad_norm()
+
+                # optimizer step
+                self.gradient_scalar.step(optimizer=self.optimizer)
+                # update the scale for next batch
+                self.gradient_scalar.update()
+                # set the gradient to zero or None
+                self._zero_grad()
+
+                self.train_iterations += 1
+
+                if self.model_ema is not None:
+                    self.model_ema.update_parameters(self.model)
+
+            metrics = metric_monitor(
+                self.opts,
+                pred_label=pred_label,
+                target_label=targets,
+                loss=loss_dict_or_tensor,
+                grad_norm=grad_norm,
+                use_distributed=self.use_distributed,
+                metric_names=self.train_metric_names,
+            )
+
+            train_stats.update(
+                metric_vals=metrics, batch_time=batch_load_toc, n=batch_size
+            )
+
+            # save the checkpoint every N updates
+            if (
+                self.save_interval
+                and (self.train_iterations % self.save_interval_freq) == 0
+            ):
+                save_interval_checkpoint(
+                    iterations=self.train_iterations,
+                    epoch=epoch,
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    best_metric=loss.item(),
+                    save_dir=self.save_location,
+                    gradient_scalar=self.gradient_scalar,
+                    not_intermediate_checkpoint=False,
+                )
+                logger.info(
+                    "Checkpoints saved after {} updates at: {}".format(
+                        self.train_iterations, self.save_location
+                    ),
+                    print_line=True,
                 )
 
-                train_stats.update(
-                    metric_vals=metrics, batch_time=batch_load_toc, n=batch_size
+            if batch_id % self.log_freq == 0 and self.is_master_node:
+                lr = self.scheduler.retrieve_lr(self.optimizer)
+                train_stats.iter_summary(
+                    epoch=epoch,
+                    n_processed_samples=self.train_iterations,
+                    total_samples=self.max_iterations,
+                    learning_rate=lr,
+                    elapsed_time=epoch_start_time,
                 )
 
-                # save the checkpoint every N updates
-                if (
-                    self.save_interval
-                    and (self.train_iterations % self.save_interval_freq) == 0
-                ):
-                    save_interval_checkpoint(
-                        iterations=self.train_iterations,
-                        epoch=epoch,
-                        model=self.model,
-                        optimizer=self.optimizer,
-                        best_metric=loss.item(),
-                        save_dir=self.save_location,
-                        gradient_scalar=self.gradient_scalar,
-                        not_intermediate_checkpoint=False,
-                    )
-                    logger.info(
-                        "Checkpoints saved after {} updates at: {}".format(
-                            self.train_iterations, self.save_location
-                        ),
-                        print_line=True,
-                    )
+            batch_load_start = time.time()
 
-                if batch_id % self.log_freq == 0 and self.is_master_node:
-                    lr = self.scheduler.retrieve_lr(self.optimizer)
-                    train_stats.iter_summary(
-                        epoch=epoch,
-                        n_processed_samples=self.train_iterations,
-                        total_samples=self.max_iterations,
-                        learning_rate=lr,
-                        elapsed_time=epoch_start_time,
-                    )
-
-                batch_load_start = time.time()
-
-                # torch.cuda.synchronize()
-                # iter_end = time.time()
-                # iter_time = iter_time + (iter_end - iter_start)
-                # if batch_id % 5000 == 0:
-                #     print(f"Avg iteration time: {iter_time / 5000}")
-                #     iter_time = 0
-
-                profiler.step()
+            # torch.cuda.synchronize()
+            # iter_end = time.time()
+            # iter_time = iter_time + (iter_end - iter_start)
+            # if batch_id % 5000 == 0:
+            #     print(f"Avg iteration time: {iter_time / 5000}")
+            #     iter_time = 0
 
         avg_loss = train_stats.avg_statistics(
             metric_name="loss", sub_metric_name="total_loss"

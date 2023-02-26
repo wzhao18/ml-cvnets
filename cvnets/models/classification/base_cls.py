@@ -240,7 +240,6 @@ class BaseEncoder(nn.Module):
 
     def forward(self, x: Any, *args, **kwargs) -> Any:
         if self.neural_augmentor is not None:
-            print("self.neural_augmentor is not None")
             if self.training:
                 x_aug = self.neural_augmentor(x)
                 prediction = self._forward_classifier(x_aug)  # .detach()
